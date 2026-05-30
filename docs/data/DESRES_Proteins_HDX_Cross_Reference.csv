@@ -1,0 +1,5 @@
+Protein,Shaw_Simulation_Set,HDX_Data_Available,HDX_Data_Source,Other_Measurements,Other_Measurements_Source
+NuG2b,Lindorff-Larsen 2011 / Piana 2013,Yes (dG_HX; m-values),Skinner et al. 2014,SAXS Rg; CD kinetics,Skinner et al. 2014
+HEWL,Robustelli 2018,Yes (dG_HX ~12.2 kcal/mol),Radford et al. 1992 (via Pace 1999),NMR (J-couplings; RDCs; S2),Robustelli 2018 / SI
+NTL9,Lindorff-Larsen 2011,Yes (dG_HX ~4.7 kcal/mol),Kuhlman & Raleigh 1998 (via Pace 1999),Thermal denaturation (Tm),Pace 1999
+Ubiquitin,Lindorff-Larsen 2011 / Robustelli 2018,Yes,Sosnick Lab (referenced 2014),NMR (J-couplings; RDCs; S2),Robustelli 2018 / SI
