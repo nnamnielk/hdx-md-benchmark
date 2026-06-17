@@ -1,0 +1,23 @@
+Temperatures: ['0.800', '0.810', '0.819', '0.829', '0.839', '0.849', '0.858', '0.868', '0.878', '0.888', '0.899', '0.909', '0.919', '0.929', '0.940', '0.950']
+Swap sets: ['0-1,2-3,4-5,6-7,8-9,10-11,12-13,14-15', '1-2,3-4,5-6,7-8,9-10,11-12,13-14']
+OMP_NUM_THREADS per protein: 16
+
+[nug2b] Progress: 132111/200000 (66.1%)
+[nug2b] Remaining: 67889 steps (678 frames)
+[nug2b] Launching REMD (16 reps, 67889 steps)...
+[nug2b] PID 51781 ✓
+
+[lambda_d14a] Progress: 135611/200000 (67.8%)
+[lambda_d14a] Remaining: 64389 steps (643 frames)
+[lambda_d14a] Launching REMD (16 reps, 64389 steps)...
+[lambda_d14a] PID 51783 ✓
+
+============================================================
+2 REMD runs (16 replicas each) continuing on 32 cores
+Remaining: nug2b=200000 steps, lambda_d14a steps
+============================================================
+Monitoring (Ctrl+C to detach)...
+  ✓ nug2b
+  ✓ lambda_d14a
+
+DONE

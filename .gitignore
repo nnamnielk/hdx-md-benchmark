@@ -1,0 +1,22 @@
+# Trajectories + input files (too large for git)
+*.up
+*.h5
+*.npy
+*.chi
+*.pdb
+*.fasta
+
+# Keep scripts, logs, README
+!.gitignore
+!*.py
+!*.log
+!*.md
+!*.txt
+!*.csv
+!*.png
+!*.ipynb
+!*.pdf
+
+# But exclude generated binary outputs inside outputs/
+runs/*/outputs/
+docs/
