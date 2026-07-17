@@ -76,7 +76,7 @@ def parse_args() -> argparse.Namespace:
         "--run-dir",
         type=Path,
         help=(
-            "Directory containing <protein>.run.<replica>.up files. "
+            "Directory containing <protein>.run.<replica>.up files, searched recursively. "
             "Defaults to simulations/<protein>/outputs/<sim-id>."
         ),
     )
@@ -615,7 +615,7 @@ def write_temperature_sweep_outputs(
 ) -> None:
     data_dir = root / "docs" / "data"
     figure_dir = root / "docs" / "figures"
-    per_temperature_dir = figure_dir / "upside_hdx_by_temperature"
+    per_temperature_dir = figure_dir / "upside_hdx_by_temperature" / args.sim_id
     data_dir.mkdir(parents=True, exist_ok=True)
     per_temperature_dir.mkdir(parents=True, exist_ok=True)
 
