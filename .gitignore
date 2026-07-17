@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.vscode/
+*.up
+*:Zone.Identifier
+
+simulations/*/inputs/
+simulations/*/outputs/
