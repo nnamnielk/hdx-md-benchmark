@@ -1,8 +1,13 @@
+# Python and editor artifacts
 __pycache__/
 *.py[cod]
 .vscode/
-*.up
 *:Zone.Identifier
 
+# Large simulation artifacts
+*.up
+*.h5
+*.chi
+runs/*/outputs/
 simulations/*/inputs/
 simulations/*/outputs/
