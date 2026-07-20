@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Compute NuG2b protection factors and ΔG_HX from REMD data."""
-import sys, os
+import sys, os, glob
 import numpy as np
 import tables as tb
 import matplotlib
@@ -15,24 +15,30 @@ from mdtraj_upside import _output_groups
 mpl.rcParams['font.size'] = 13
 mpl.rcParams['font.family'] = "sans-serif"
 
-RUNS = os.path.expanduser("~/.hermes/workspace/hdx-benchmark-desmond-upside/runs")
-OUT = os.path.expanduser("~/.hermes/workspace/hdx-benchmark-desmond-upside/analysis")
+RUNS = os.path.expanduser("~/.hermes/workspace/hdx-md-benchmark/simulations")
+OUT = os.path.expanduser("~/.hermes/workspace/hdx-md-benchmark/analysis")
 
-h5_path = os.path.join(RUNS, "nug2b/outputs/nug2b_remd/nug2b.run.0.up")
+h5_dir = os.path.join(RUNS, "nug2b/outputs/REMD")
+files = glob.glob(os.path.join(h5_dir, "*.up"))
 
-with tb.open_file(h5_path, 'r') as t:
-    seq = [s.decode() for s in t.root.input.sequence[:]]
-    n_res = len(seq)
-    
-    all_hb = []
-    all_ridx = []
-    for g_no, g in enumerate(_output_groups(t)):
-        if g_no == 0:
-            all_hb.append(g.hbond[:])
-            all_ridx.append(g.replica_index[:, 0])
-        else:
-            all_hb.append(g.hbond[1:])
-            all_ridx.append(g.replica_index[1:, 0])
+all_hb = []
+all_ridx = []
+seq = None
+n_res = 0
+
+for f in files:
+    with tb.open_file(f, 'r') as t:
+        if seq is None:
+            seq = [s.decode() for s in t.root.input.sequence[:]]
+            n_res = len(seq)
+        
+        for g_no, g in enumerate(_output_groups(t)):
+            if g_no == 0:
+                all_hb.append(g.hbond[:])
+                all_ridx.append(g.replica_index[:, 0])
+            else:
+                all_hb.append(g.hbond[1:])
+                all_ridx.append(g.replica_index[1:, 0])
 
 hb_all = np.concatenate(all_hb)
 ridx_all = np.concatenate(all_ridx)
@@ -58,6 +64,21 @@ R = 0.001987
 T = 300.0
 pf_clipped = np.clip(pf, 0.001, 0.999)
 dG_HX = -R * T * np.log(pf_clipped / (1 - pf_clipped))
+
+# Convergence Check: Split native frames into two halves
+half = len(hb_native) // 2
+pf_h1 = (hb_native[:half] > CRITERION).mean(axis=0)
+pf_h2 = (hb_native[half:] > CRITERION).mean(axis=0)
+
+dG_h1 = -R * T * np.log(np.clip(pf_h1, 0.001, 0.999) / (1 - np.clip(pf_h1, 0.001, 0.999)))
+dG_h2 = -R * T * np.log(np.clip(pf_h2, 0.001, 0.999) / (1 - np.clip(pf_h2, 0.001, 0.999)))
+
+rmse = np.sqrt(np.mean((dG_h1 - dG_h2)**2))
+print(f"Convergence Check (ΔG_HX): RMSE between first half and second half = {rmse:.3f} kcal/mol")
+if rmse < 0.5:
+    print("-> Sampling looks SUFFICIENT (RMSE < 0.5 kcal/mol).")
+else:
+    print("-> More sampling might be NEEDED (RMSE >= 0.5 kcal/mol).")
 
 print(f"\n=== Protection Factors & dG_HX ===")
 print(f"{'Res':>4} {'AA':>4} {'Pf':>7} {'dG_HX':>8}")

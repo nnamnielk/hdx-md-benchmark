@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 
-N_REPLICAS = 16
+N_REPLICAS = 20
 T_LOW = 0.80
 T_HIGH = 0.96
 
