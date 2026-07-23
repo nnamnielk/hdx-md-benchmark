@@ -11,3 +11,4 @@ __pycache__/
 runs/*/outputs/
 simulations/*/inputs/
 simulations/*/outputs/
+simulations/*.zip
