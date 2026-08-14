@@ -9,6 +9,9 @@ __pycache__/
 *.h5
 *.chi
 runs/*/outputs/
-simulations/*/inputs/
-simulations/*/outputs/
-simulations/*.zip
+
+# Everything under simulations/ is generated data (18 GB of trajectories,
+# protection states and downloaded archives). The previous patterns
+# (simulations/*/inputs/, simulations/*/outputs/) never matched: the real
+# layout is simulations/<engine>/<protein>/{inputs,outputs}/, one level deeper.
+simulations/

@@ -13,34 +13,17 @@ import sys
 import numpy as np
 
 
+ROOT = Path(__file__).resolve().parents[1]
 N_REPLICAS = 16
 KCAL_PER_MOL_K = 0.00198720425864083
-SKINNER_EXPERIMENT_GLOBAL_KEY = "kinetics"
-SKINNER_FIG3_EXPERIMENT_GLOBAL_DELTA_G = 7.70
-SKINNER_NUG2B_GLOBALS = {
-    "CD": {"delta_g": 7.48, "se": 0.23},
-    "kinetics": {"delta_g": 7.78, "se": 0.23},
-    "m_hx": {"value": 1.29, "se": 0.10},
-}
+# State-definition cutoffs are our reproduction of Skinner's native/denatured split,
+# not measured quantities, so they stay in code. The measurements live in
+# references/<protein>_hdx.json -- see load_experiment().
 SKINNER_STATE_RMSD_CUTOFF_ANGSTROM = 4.0
 SKINNER_STATE_Q_NATIVE_CUTOFF = 0.60
 SKINNER_STATE_NATIVE_HBOND_CUTOFF = 20.0
-SKINNER_NUG2B_HX_TABLE = [
-    (3, "Y", 8.08, 0.11),
-    (4, "K", 8.54, 0.11),
-    (5, "L", 8.31, 0.11),
-    (6, "V", 8.09, 0.11),
-    (7, "I", 7.84, 0.11),
-    (16, "Y", 7.85, 0.14),
-    (18, "T", 7.85, 0.17),
-    (26, "A", 8.45, 0.15),
-    (27, "E", 7.74, 0.12),
-    (30, "F", 7.93, 0.12),
-    (31, "K", 7.94, 0.14),
-    (51, "T", 8.30, 0.12),
-]
-N_TERMINAL_TAGS = {
-    "nug2b": ("HIS", "HIS", "HIS", "ALA", "MET"),
+REFERENCE_FILES = {
+    "nug2b": "skinner_2014_nug2b_hdx.json",
 }
 ONE_LETTER_AA = {
     "ALA": "A",
@@ -66,18 +49,109 @@ ONE_LETTER_AA = {
 }
 
 
+def one_letter_sequence(sequence: list[str]) -> str:
+    return "".join(ONE_LETTER_AA.get(item, "X") for item in sequence)
+
+
+class Experiment:
+    """Experimental HX measurements for one protein, loaded from references/.
+
+    Residue numbers are 1-based positions in `reference_sequence`. Nothing here is
+    expressed as an offset against protection-state columns: callers join on residue
+    number, using the donor ids that get_protection_state.py writes to the .resid file.
+    """
+
+    def __init__(self, payload: dict, source: Path) -> None:
+        self.source = source
+        self.protein = payload["protein"]
+        numbering = payload["numbering"]
+        self.construct = numbering["construct"]
+        self.reference_sequence = numbering["reference_sequence"]
+        globals_ = payload["global"]
+        self.global_key = globals_["reported_key"]
+        self.fig3_global_delta_g = float(globals_["fig3_rounded_delta_g"])
+        self.measurements = globals_["measurements"]
+        rows = sorted(payload["residues"], key=lambda row: row["residue"])
+        self.residues = np.array([row["residue"] for row in rows], dtype=int)
+        self.amino_acids = [row["amino_acid"] for row in rows]
+        self.delta_g = np.array([row["delta_g_hx"] for row in rows], dtype=float)
+        self.se = np.array([row["se"] for row in rows], dtype=float)
+        self._check_internally_consistent()
+
+    @property
+    def n_residues(self) -> int:
+        return len(self.reference_sequence)
+
+    @property
+    def labels(self) -> list[str]:
+        return [f"{residue}{aa}" for residue, aa in zip(self.residues, self.amino_acids)]
+
+    def by_residue(self) -> dict[int, tuple[str, float, float]]:
+        return {
+            int(residue): (aa, float(dg), float(se))
+            for residue, aa, dg, se in zip(self.residues, self.amino_acids, self.delta_g, self.se)
+        }
+
+    def _check_internally_consistent(self) -> None:
+        for residue, aa in zip(self.residues, self.amino_acids):
+            found = self.reference_sequence[int(residue) - 1]
+            if found != aa:
+                raise ValueError(
+                    f"{self.source}: residue {residue} is listed as {aa} but "
+                    f"reference_sequence has {found} there."
+                )
+
+    def require_matching_sequence(self, sequence: list[str], origin: Path) -> None:
+        """Reject any structure whose sequence differs from the one the data is numbered against."""
+        found = one_letter_sequence(sequence)
+        if found == self.reference_sequence:
+            return
+        detail = f"expected {self.n_residues} residues, found {len(found)}"
+        if len(found) == self.n_residues:
+            sites = [
+                f"{index + 1}:{self.reference_sequence[index]}->{found[index]}"
+                for index in range(len(found))
+                if found[index] != self.reference_sequence[index]
+            ]
+            detail = "differs at " + ", ".join(sites[:6]) + ("..." if len(sites) > 6 else "")
+        raise ValueError(
+            f"{origin} does not match the construct {self.source.name} is numbered against "
+            f"({detail}).\n  expected: {self.construct}"
+        )
+
+
+_EXPERIMENT_CACHE: dict[Path, Experiment] = {}
+
+
+def load_experiment(protein: str, root: Path | None = None) -> Experiment:
+    import json
+
+    try:
+        name = REFERENCE_FILES[protein]
+    except KeyError:
+        raise ValueError(
+            f"no experimental reference registered for {protein!r}; "
+            f"add one to references/ and to REFERENCE_FILES"
+        ) from None
+    source = (ROOT if root is None else root) / "references" / name
+    if source not in _EXPERIMENT_CACHE:
+        with source.open(encoding="utf-8") as handle:
+            _EXPERIMENT_CACHE[source] = Experiment(json.load(handle), source)
+    return _EXPERIMENT_CACHE[source]
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Compute NuG2b Delta G_HX using Upside's HDX protection-state example logic."
     )
     parser.add_argument("--protein", default="nug2b")
-    parser.add_argument("--sim-id", default="remd")
+    parser.add_argument("--sim-id", default="remd_077_093_linear_ri10")
     parser.add_argument(
         "--run-dir",
         type=Path,
         help=(
             "Directory containing <protein>.run.<replica>.up files, searched recursively. "
-            "Defaults to simulations/<protein>/outputs/<sim-id>."
+            "Defaults to simulations/upside/<protein>/outputs/<sim-id>."
         ),
     )
     parser.add_argument("--start-frame", type=int, default=100)
@@ -224,14 +298,9 @@ def hbond_pair_scores(path: Path, stride: int) -> tuple[np.ndarray, np.ndarray, 
 
 def state_mask_for_run(protein: str, run_file: Path, stride: int) -> np.ndarray:
     sequence, reference = read_input_sequence_and_positions(run_file)
+    load_experiment(protein).require_matching_sequence(sequence, run_file)
     positions = read_positions(run_file, stride)
-    pair_scores, donor_res, acceptor_res = hbond_pair_scores(run_file, stride)
-    tag_len = n_terminal_tag_length(protein, sequence)
-    if tag_len:
-        positions = positions[:, tag_len * 3 :, :]
-        reference = reference[tag_len * 3 :, :]
-        keep_pairs = (donor_res >= tag_len) & (acceptor_res >= tag_len)
-        pair_scores = pair_scores[:, keep_pairs]
+    pair_scores, _, _ = hbond_pair_scores(run_file, stride)
     ca = ca_positions(positions)
     reference_ca = reference[1::3, :]
     rmsd = kabsch_rmsd_series(ca, reference_ca)
@@ -254,13 +323,6 @@ def load_state_masks(args: argparse.Namespace, run_files: list[Path]) -> np.ndar
     return np.asarray([mask[:min_frames] for mask in masks], dtype=bool)
 
 
-def n_terminal_tag_length(protein: str, sequence: list[str]) -> int:
-    tag = N_TERMINAL_TAGS.get(protein)
-    if tag is None or tuple(sequence[: len(tag)]) != tag:
-        return 0
-    return len(tag)
-
-
 def write_fasta(path: Path, sequence: list[str], source: Path) -> None:
     one_letter = "".join(ONE_LETTER_AA[item] for item in sequence)
     with path.open("w", encoding="ascii") as handle:
@@ -269,14 +331,19 @@ def write_fasta(path: Path, sequence: list[str], source: Path) -> None:
             handle.write(one_letter[start : start + 80] + "\n")
 
 
-def ensure_hdx_top(args: argparse.Namespace, root: Path, input_dir: Path) -> Path:
+def ensure_hdx_top(args: argparse.Namespace, reference_run: Path, hdx_dir: Path) -> Path:
+    """Build the HDX topology from the trajectory itself.
+
+    get_protection_state.py reads the residue count from the topology but the
+    coordinates from the trajectory, so a topology built from any other source
+    fails an opaque shape assertion when the two disagree.
+    """
     upside_home = Path(args.upside_home).expanduser().resolve()
     upside_py = upside_home / "py"
-    hdx_dir = input_dir / "hdx"
     hdx_dir.mkdir(parents=True, exist_ok=True)
     hdx_top = hdx_dir / f"{args.protein}-HDX.up"
-    base_top = input_dir / f"{args.protein}.up"
-    base_sequence, base_positions = read_input_sequence_and_positions(base_top)
+    base_sequence, base_positions = read_input_sequence_and_positions(reference_run)
+    load_experiment(args.protein).require_matching_sequence(base_sequence, reference_run)
     if hdx_top.exists():
         hdx_sequence, _ = read_input_sequence_and_positions(hdx_top)
         if len(hdx_sequence) == len(base_sequence):
@@ -284,7 +351,7 @@ def ensure_hdx_top(args: argparse.Namespace, root: Path, input_dir: Path) -> Pat
         hdx_top.unlink()
 
     prefix = hdx_dir / args.protein
-    write_fasta(prefix.with_suffix(".fasta"), base_sequence, base_top)
+    write_fasta(prefix.with_suffix(".fasta"), base_sequence, reference_run)
     np.save(prefix.with_suffix(".initial.npy"), base_positions)
     chain_breaks = prefix.with_suffix(".chain_breaks")
     if chain_breaks.exists():
@@ -533,19 +600,19 @@ def calculate_delta_g_temperature_sweep(
     )
 
 
-def tagless_output_indices(protein: str, input_dir: Path, residue_ids: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    sequence, _ = read_input_sequence_and_positions(input_dir / f"{protein}.up")
-    tag_len = n_terminal_tag_length(protein, sequence)
-    residue_ids = residue_ids.astype(int)
-    keep = residue_ids >= tag_len
-    tagless_residues = residue_ids[keep] - tag_len + 1
-    return keep, tagless_residues
+def skinner_residue_numbers(residue_ids: np.ndarray) -> np.ndarray:
+    """Residue numbers for each protection-state column, in Skinner's numbering.
+
+    get_protection_state.py writes infer_H_O.donors.residue, which holds 0-based
+    residue indices, so PS column j covers residue residue_ids[j] + 1.
+    """
+    return residue_ids.astype(int) + 1
 
 
 def write_outputs(
     args: argparse.Namespace,
     root: Path,
-    input_dir: Path,
+    experiment: Experiment,
     residue_ids: np.ndarray,
     delta_g: np.ndarray,
     dghx_den: np.ndarray,
@@ -555,10 +622,8 @@ def write_outputs(
     figure_dir = root / "docs" / "figures"
     data_dir.mkdir(parents=True, exist_ok=True)
     figure_dir.mkdir(parents=True, exist_ok=True)
-    keep, tagless_residues = tagless_output_indices(args.protein, input_dir, residue_ids)
-    delta_g = delta_g[keep]
-    m_values = m_values[:, keep]
-    exp = {residue: (aa, dg, se) for residue, aa, dg, se in SKINNER_NUG2B_HX_TABLE}
+    residue_numbers = skinner_residue_numbers(residue_ids)
+    exp = experiment.by_residue()
     csv_path = data_dir / f"{args.protein}_upside_hdx.csv"
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
@@ -573,24 +638,26 @@ def write_outputs(
             ]
         )
         mean_m = np.nanmean(m_values[m_value_window(args)], axis=0)
-        for index, residue in enumerate(tagless_residues.astype(int)):
+        for index, residue in enumerate(residue_numbers):
             aa, skinner_dg, skinner_se = exp.get(int(residue), ("", np.nan, np.nan))
             writer.writerow([int(residue), aa, delta_g[index], mean_m[index], skinner_dg, skinner_se])
 
     import matplotlib.pyplot as plt
 
-    residues = np.array([row[0] for row in SKINNER_NUG2B_HX_TABLE], dtype=int)
-    exp_y = np.array([row[2] for row in SKINNER_NUG2B_HX_TABLE], dtype=float)
-    exp_se = np.array([row[3] for row in SKINNER_NUG2B_HX_TABLE], dtype=float)
-    sim_y = np.array([delta_g[np.where(tagless_residues == residue)[0][0]] for residue in residues])
-    labels = [f"{row[0]}{row[1]}" for row in SKINNER_NUG2B_HX_TABLE]
+    residues = experiment.residues
+    sim_y = np.array([delta_g[np.where(residue_numbers == residue)[0][0]] for residue in residues])
+    cd_global = experiment.measurements["CD"]["delta_g"]
+    kinetic_global = experiment.measurements["kinetics"]["delta_g"]
     fig, ax = plt.subplots(figsize=(7.4, 3.7), constrained_layout=True)
-    ax.errorbar(residues, exp_y, yerr=exp_se, fmt="s", color="black", capsize=2, label="Skinner experiment")
+    ax.errorbar(
+        residues, experiment.delta_g, yerr=experiment.se,
+        fmt="s", color="black", capsize=2, label="Skinner experiment",
+    )
     ax.plot(residues, sim_y, "o-", color="#d95f02", label="Upside HDX PS + MBAR")
-    ax.axhline(7.48, color="#0072b2", ls="--", lw=1.0, label="Skinner CD global")
-    ax.axhline(7.78, color="#009e73", ls=":", lw=1.3, label="Skinner kinetic global")
+    ax.axhline(cd_global, color="#0072b2", ls="--", lw=1.0, label="Skinner CD global")
+    ax.axhline(kinetic_global, color="#009e73", ls=":", lw=1.3, label="Skinner kinetic global")
     ax.set_xticks(residues)
-    ax.set_xticklabels(labels, rotation=45, ha="right")
+    ax.set_xticklabels(experiment.labels, rotation=45, ha="right")
     ax.set_xlabel("NuG2b residue")
     ax.set_ylabel(r"$\Delta G_{HX}$ (kcal/mol)")
     ax.set_title("NuG2b HDX stability: Skinner experiment vs Upside HDX workflow")
@@ -605,7 +672,7 @@ def write_outputs(
 def write_temperature_sweep_outputs(
     args: argparse.Namespace,
     root: Path,
-    input_dir: Path,
+    experiment: Experiment,
     residue_ids: np.ndarray,
     target_temperatures: np.ndarray,
     delta_g_by_temperature: np.ndarray,
@@ -619,17 +686,16 @@ def write_temperature_sweep_outputs(
     data_dir.mkdir(parents=True, exist_ok=True)
     per_temperature_dir.mkdir(parents=True, exist_ok=True)
 
-    keep, tagless_residues = tagless_output_indices(args.protein, input_dir, residue_ids)
-    delta_g_by_temperature = delta_g_by_temperature[:, keep]
-    exp = {residue: (aa, dg, se) for residue, aa, dg, se in SKINNER_NUG2B_HX_TABLE}
-    skinner_residues = np.array([row[0] for row in SKINNER_NUG2B_HX_TABLE], dtype=int)
-    skinner_labels = [f"{row[0]}{row[1]}" for row in SKINNER_NUG2B_HX_TABLE]
-    exp_y = np.array([row[2] for row in SKINNER_NUG2B_HX_TABLE], dtype=float)
-    exp_se = np.array([row[3] for row in SKINNER_NUG2B_HX_TABLE], dtype=float)
-    experiment_global_delta_g = SKINNER_FIG3_EXPERIMENT_GLOBAL_DELTA_G
+    residue_numbers = skinner_residue_numbers(residue_ids)
+    exp = experiment.by_residue()
+    skinner_residues = experiment.residues
+    skinner_labels = experiment.labels
+    exp_y = experiment.delta_g
+    exp_se = experiment.se
+    experiment_global_delta_g = experiment.fig3_global_delta_g
     exp_relative = exp_y - experiment_global_delta_g
     exp_mean_relative = float(np.nanmean(exp_relative))
-    skinner_indices = [np.where(tagless_residues == residue)[0][0] for residue in skinner_residues]
+    skinner_indices = [np.where(residue_numbers == residue)[0][0] for residue in skinner_residues]
     sweep_values = delta_g_by_temperature[:, skinner_indices]
     sweep_relative = sweep_values - global_delta_g_by_temperature[:, None]
     sweep_mean_relative = np.nanmean(sweep_relative, axis=1)
@@ -654,7 +720,7 @@ def write_temperature_sweep_outputs(
         )
         cap = KCAL_PER_MOL_K * args.experimental_temperature_k * np.log(1.0 / 1e-12)
         for temp_index, target_temperature in enumerate(target_temperatures):
-            for index, residue in enumerate(tagless_residues.astype(int)):
+            for index, residue in enumerate(residue_numbers):
                 aa, skinner_dg, skinner_se = exp.get(int(residue), ("", np.nan, np.nan))
                 writer.writerow(
                     [
@@ -698,7 +764,7 @@ def write_temperature_sweep_outputs(
                     dse_probability_by_temperature[index],
                     float(np.nanmean(sweep_values[index])),
                     sweep_mean_relative[index],
-                    f"{SKINNER_EXPERIMENT_GLOBAL_KEY}_fig3_rounded",
+                    f"{experiment.global_key}_fig3_rounded",
                     experiment_global_delta_g,
                     float(np.nanmean(exp_y)),
                     exp_mean_relative,
@@ -805,7 +871,7 @@ def write_temperature_sweep_outputs(
     print("wrote", per_temperature_dir)
     print(
         "Skinner experiment mean DeltaG_HX - DeltaG_global "
-        f"({SKINNER_EXPERIMENT_GLOBAL_KEY}, Fig. 3 rounded) = {exp_mean_relative:.3f} kcal/mol"
+        f"({experiment.global_key}, Fig. 3 rounded) = {exp_mean_relative:.3f} kcal/mol"
     )
     for target_temperature, mean_relative, global_delta_g in zip(
         target_temperatures, sweep_mean_relative, global_delta_g_by_temperature
@@ -819,20 +885,25 @@ def write_temperature_sweep_outputs(
 
 def main() -> None:
     args = parse_args()
-    root = Path(__file__).resolve().parents[1]
-    input_dir = root / "simulations" / args.protein / "inputs"
+    root = ROOT
+    experiment = load_experiment(args.protein, root)
+    print(f"experimental reference: {experiment.source.relative_to(root)}")
     run_dir = (
         args.run_dir.expanduser().resolve()
         if args.run_dir is not None
-        else root / "simulations" / args.protein / "outputs" / args.sim_id
+        else root / "simulations" / "upside" / args.protein / "outputs" / args.sim_id
     )
     run_files = discover_run_files(args, run_dir)
     print(f"trajectory directory: {run_dir}")
     print(f"discovered {len(run_files)} replica files")
+    if len(run_files) != args.n_replicas:
+        raise ValueError(
+            f"expected {args.n_replicas} replicas in {run_dir}, found {len(run_files)}"
+        )
     result_dir = root / "docs" / "data" / "upside_hdx"
     result_dir.mkdir(parents=True, exist_ok=True)
 
-    hdx_top = ensure_hdx_top(args, root, input_dir)
+    hdx_top = ensure_hdx_top(args, run_files[0], result_dir / "topology")
     residue_file = result_dir / f"{args.protein}_stride{args.stride}.resid"
     for replica, run_file in enumerate(run_files):
         print(f"protection states replica {replica}")
@@ -851,7 +922,7 @@ def main() -> None:
     )
     residue_ids = np.loadtxt(residue_file, dtype=int)
     delta_g, dghx_den, m_values = calculate_hdx(args, potentials, temperatures, protection)
-    write_outputs(args, root, input_dir, residue_ids, delta_g, dghx_den, m_values)
+    write_outputs(args, root, experiment, residue_ids, delta_g, dghx_den, m_values)
     (
         target_temperatures,
         delta_g_by_temperature,
@@ -864,7 +935,7 @@ def main() -> None:
     write_temperature_sweep_outputs(
         args,
         root,
-        input_dir,
+        experiment,
         residue_ids,
         target_temperatures,
         delta_g_by_temperature,

@@ -1,0 +1,41 @@
+{
+  "protein": "nug2b",
+  "source": {
+    "citation": "Skinner JJ, Yu W, Gichana EK, Baxa MC, Hinshaw JR, Freed KF, Sosnick TR. Benchmarking all-atom simulations using hydrogen exchange. PNAS 2014;111(45):15975-15980.",
+    "denaturant": "guanidinium chloride",
+    "temperature_k": 313.0,
+    "units": {
+      "delta_g_hx": "kcal/mol",
+      "m_hx": "kcal/mol/M"
+    }
+  },
+  "numbering": {
+    "construct": "tagless 56-residue NuG2b: 1MI0 chain A with the HHHAM expression tag trimmed and the NuG2 -> NuG2b mutations applied (see scripts/download_pdbs.py)",
+    "reference_sequence": "DTYKLVIVLNGTTFTYTTEAVDAATAEKVFKQYANDAGVDGEWTYDAATKTFTVTE",
+    "first_residue": 1,
+    "comment": "residue numbers below are 1-based positions in reference_sequence. Protection-state columns are amide NH donors, which are fewer than the residues and may skip positions, so join them via the donor residue ids that get_protection_state.py writes to the .resid file rather than by a constant offset."
+  },
+  "global": {
+    "reported_key": "kinetics",
+    "fig3_rounded_delta_g": 7.7,
+    "measurements": {
+      "CD": {"delta_g": 7.48, "se": 0.23},
+      "kinetics": {"delta_g": 7.78, "se": 0.23},
+      "m_hx": {"value": 1.29, "se": 0.1}
+    }
+  },
+  "residues": [
+    {"residue": 3,  "amino_acid": "Y", "delta_g_hx": 8.08, "se": 0.11},
+    {"residue": 4,  "amino_acid": "K", "delta_g_hx": 8.54, "se": 0.11},
+    {"residue": 5,  "amino_acid": "L", "delta_g_hx": 8.31, "se": 0.11},
+    {"residue": 6,  "amino_acid": "V", "delta_g_hx": 8.09, "se": 0.11},
+    {"residue": 7,  "amino_acid": "I", "delta_g_hx": 7.84, "se": 0.11},
+    {"residue": 16, "amino_acid": "Y", "delta_g_hx": 7.85, "se": 0.14},
+    {"residue": 18, "amino_acid": "T", "delta_g_hx": 7.85, "se": 0.17},
+    {"residue": 26, "amino_acid": "A", "delta_g_hx": 8.45, "se": 0.15},
+    {"residue": 27, "amino_acid": "E", "delta_g_hx": 7.74, "se": 0.12},
+    {"residue": 30, "amino_acid": "F", "delta_g_hx": 7.93, "se": 0.12},
+    {"residue": 31, "amino_acid": "K", "delta_g_hx": 7.94, "se": 0.14},
+    {"residue": 51, "amino_acid": "T", "delta_g_hx": 8.30, "se": 0.12}
+  ]
+}
